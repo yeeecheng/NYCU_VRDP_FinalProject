@@ -1,0 +1,8 @@
+.eggs
+kaggle_test_HR_result
+__pycache__
+experiments
+drct.egg-info
+tb_logger/
+weights/
+kaggle_solution.csv
