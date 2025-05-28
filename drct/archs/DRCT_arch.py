@@ -235,8 +235,8 @@ class RDG(nn.Module):
                                           drop=drop, attn_drop=attn_drop,
                                           drop_path=drop_path[0] if isinstance(drop_path, list) else drop_path,
                                           norm_layer=norm_layer)
-        self.adjust1 = nn.Conv2d(dim, gc, 1) 
-        
+        self.adjust1 = nn.Conv2d(dim, gc, 1)
+
         self.swin2 = SwinTransformerBlock(dim + gc, input_resolution=input_resolution,
                                           num_heads=num_heads - ((dim + gc)%num_heads), window_size=window_size,
                                           shift_size=window_size//2,  # For first block
@@ -245,8 +245,8 @@ class RDG(nn.Module):
                                           drop=drop, attn_drop=attn_drop,
                                           drop_path=drop_path[0] if isinstance(drop_path, list) else drop_path,
                                           norm_layer=norm_layer)
-        self.adjust2 = nn.Conv2d(dim+gc, gc, 1) 
-        
+        self.adjust2 = nn.Conv2d(dim+gc, gc, 1)
+
         self.swin3 = SwinTransformerBlock(dim + 2 * gc, input_resolution=input_resolution,
                                           num_heads=num_heads - ((dim + 2 * gc)%num_heads), window_size=window_size,
                                           shift_size=0,  # For first block
@@ -255,8 +255,8 @@ class RDG(nn.Module):
                                           drop=drop, attn_drop=attn_drop,
                                           drop_path=drop_path[0] if isinstance(drop_path, list) else drop_path,
                                           norm_layer=norm_layer)
-        self.adjust3 = nn.Conv2d(dim+gc*2, gc, 1) 
-        
+        self.adjust3 = nn.Conv2d(dim+gc*2, gc, 1)
+
         self.swin4 = SwinTransformerBlock(dim + 3 * gc, input_resolution=input_resolution,
                                           num_heads=num_heads - ((dim + 3 * gc)%num_heads), window_size=window_size,
                                           shift_size=window_size//2,  # For first block
@@ -265,8 +265,8 @@ class RDG(nn.Module):
                                           drop=drop, attn_drop=attn_drop,
                                           drop_path=drop_path[0] if isinstance(drop_path, list) else drop_path,
                                           norm_layer=norm_layer)
-        self.adjust4 = nn.Conv2d(dim+gc*3, gc, 1) 
-        
+        self.adjust4 = nn.Conv2d(dim+gc*3, gc, 1)
+
         self.swin5 = SwinTransformerBlock(dim + 4 * gc, input_resolution=input_resolution,
                                           num_heads=num_heads - ((dim + 4 * gc)%num_heads), window_size=window_size,
                                           shift_size=0,  # For first block
@@ -275,10 +275,10 @@ class RDG(nn.Module):
                                           drop=drop, attn_drop=attn_drop,
                                           drop_path=drop_path[0] if isinstance(drop_path, list) else drop_path,
                                           norm_layer=norm_layer)
-        self.adjust5 = nn.Conv2d(dim+gc*4, dim, 1) 
-        
+        self.adjust5 = nn.Conv2d(dim+gc*4, dim, 1)
+
         self.lrelu = nn.LeakyReLU(negative_slope=0.2, inplace=True)
-        
+
         self.pe = PatchEmbed(
             img_size=img_size, patch_size=patch_size, in_chans=0, embed_dim=dim,
             norm_layer=None)
@@ -286,8 +286,8 @@ class RDG(nn.Module):
         self.pue = PatchUnEmbed(
             img_size=img_size, patch_size=patch_size, in_chans=0, embed_dim=dim,
             norm_layer=None)
-        
-       
+
+
 
     def forward(self, x, xsize):
         x1 = self.pe(self.lrelu(self.adjust1(self.pue(self.swin1(x,xsize), xsize))))
@@ -295,10 +295,10 @@ class RDG(nn.Module):
         x3 = self.pe(self.lrelu(self.adjust3(self.pue(self.swin3(torch.cat((x, x1, x2), -1), xsize), xsize))))
         x4 = self.pe(self.lrelu(self.adjust4(self.pue(self.swin4(torch.cat((x, x1, x2, x3), -1), xsize), xsize))))
         x5 = self.pe(           self.adjust5(self.pue(self.swin5(torch.cat((x, x1, x2, x3, x4), -1), xsize), xsize)))
-        
+
 
         return x5 * 0.2 + x
-    
+
 class SwinTransformerBlock(nn.Module):
     r""" Swin Transformer Block.
     Args:
@@ -712,12 +712,12 @@ class DRCT(nn.Module):
         # build
         self.layers = nn.ModuleList()
         for i_layer in range(self.num_layers):
-            
+
             layer = RDG(dim=embed_dim, input_resolution=(patches_resolution[0], patches_resolution[1]),
                                  num_heads= num_heads[i_layer], window_size=window_size, depth=0,
                                  shift_size= window_size//2, mlp_ratio=mlp_ratio,
                                  qkv_bias=qkv_bias, qk_scale=qk_scale,  drop=drop_rate, attn_drop=attn_drop_rate,
-                                 drop_path=dpr[sum(depths[:i_layer]):sum(depths[:i_layer + 1])], 
+                                 drop_path=dpr[sum(depths[:i_layer]):sum(depths[:i_layer + 1])],
                                              norm_layer=norm_layer,gc=gc, img_size=img_size, patch_size=patch_size)
 
             self.layers.append(layer)
@@ -748,7 +748,7 @@ class DRCT(nn.Module):
             nn.init.constant_(m.bias, 0)
             nn.init.constant_(m.weight, 1.0)
 
-   
+
 
     @torch.jit.ignore
     def no_weight_decay(self):
@@ -758,6 +758,26 @@ class DRCT(nn.Module):
     def no_weight_decay_keywords(self):
         return {'relative_position_bias_table'}
 
+    # def forward_features(self, x):
+    #     x_size = (x.shape[2], x.shape[3])
+
+    #     x = self.patch_embed(x)
+    #     if self.ape:
+    #         x = x + self.absolute_pos_embed
+    #     x = self.pos_drop(x)
+
+    #     features = []
+
+    #     for layer in self.layers:
+    #         x = layer(x, x_size)
+    #         x_unembed = self.patch_unembed(x, x_size)
+    #         features.append(x_unembed.clone())
+
+    #     x = self.norm(x)  # b seq_len c
+    #     x = self.patch_unembed(x, x_size)
+
+    #     return x, features
+
     def forward_features(self, x):
         x_size = (x.shape[2], x.shape[3])
 
@@ -766,13 +786,18 @@ class DRCT(nn.Module):
             x = x + self.absolute_pos_embed
         x = self.pos_drop(x)
 
+        features = []
+
         for layer in self.layers:
             x = layer(x, x_size)
+            x_unembed = self.patch_unembed(x, x_size)
+            features.append(x_unembed.clone())
 
         x = self.norm(x)  # b seq_len c
         x = self.patch_unembed(x, x_size)
 
-        return x
+        return x, features
+
 
     def forward(self, x):
         self.mean = self.mean.type_as(x)
@@ -781,10 +806,20 @@ class DRCT(nn.Module):
         if self.upsampler == 'pixelshuffle':
             # for classical SR
             x = self.conv_first(x)
+
+
+            # features_out, feature_maps = self.forward_features(x)
+            # x = self.conv_after_body(features_out) + x
+            # x = self.conv_before_upsample(x)
+            # x = self.conv_last(self.upsample(x))
+
+
             x = self.conv_after_body(self.forward_features(x)) + x
             x = self.conv_before_upsample(x)
             x = self.conv_last(self.upsample(x))
 
         x = x / self.img_range + self.mean
+
+        # return x, feature_maps
 
         return x

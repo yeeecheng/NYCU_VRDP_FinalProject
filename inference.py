@@ -9,6 +9,17 @@ from drct.archs.DRCT_arch import *
 #from drct.data import *
 #from drct.models import *
 
+from torchvision.transforms import functional as TF
+
+def apply_tta(img):
+    return [
+        (lambda x: x, 'none'),
+        (TF.hflip, 'hflip'),
+        (TF.vflip, 'vflip'),
+        (lambda x: TF.hflip(TF.vflip(x)), 'hvflip')
+    ]
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -57,13 +68,30 @@ def main():
         try:
             with torch.no_grad():
                 #output = model(img)
-                _, _, h_old, w_old = img.size()
-                h_pad = (h_old // window_size + 1) * window_size - h_old
-                w_pad = (w_old // window_size + 1) * window_size - w_old
-                img = torch.cat([img, torch.flip(img, [2])], 2)[:, :, :h_old + h_pad, :]
-                img = torch.cat([img, torch.flip(img, [3])], 3)[:, :, :, :w_old + w_pad]
-                output = test(img, model, args, window_size)
-                output = output[..., :h_old * args.scale, :w_old * args.scale]
+
+                outputs = []
+                for transform, name in apply_tta(img[0]): 
+                    tta_img = transform(img[0]) 
+                    tta_img = tta_img.unsqueeze(0).to(device)
+
+                    _, _, h_old, w_old = tta_img.size()
+                    h_pad = (h_old // window_size + 1) * window_size - h_old
+                    w_pad = (w_old // window_size + 1) * window_size - w_old
+                    tta_img = torch.cat([tta_img, torch.flip(tta_img, [2])], 2)[:, :, :h_old + h_pad, :]
+                    tta_img = torch.cat([tta_img, torch.flip(tta_img, [3])], 3)[:, :, :, :w_old + w_pad]
+                    output = test(tta_img, model, args, window_size, idx)
+                    output = output[..., :h_old * args.scale, :w_old * args.scale]
+                    # inverse transform
+                    if name == 'hflip':
+                        output = torch.flip(output, [3])
+                    elif name == 'vflip':
+                        output = torch.flip(output, [2])
+                    elif name == 'hvflip':
+                        output = torch.flip(output, [2, 3])
+                    outputs.append(output)
+
+                
+                output = torch.stack(outputs).mean(dim=0) 
 
         except Exception as error:
             print('Error', error, imgname)
@@ -75,10 +103,25 @@ def main():
             cv2.imwrite(os.path.join(args.output, f'{imgname}_DRCT-L_X4.png'), output)
 
 
-def test(img_lq, model, args, window_size):
+
+def test(img_lq, model, args, window_size, idx):
     if args.tile is None:
         # test the image as a whole
-        output = model(img_lq)
+        # output, feature_maps = model(img_lq)
+        output, _ = model(img_lq)
+
+        # import matplotlib.pyplot as plt
+        # for i, feat in enumerate(feature_maps):
+        #     fmap = feat[0].mean(0).cpu().numpy()  # 平均所有 channels，shape: [H, W]
+        
+        #     plt.figure(figsize=(4, 4))            # 每張開新圖
+        #     plt.imshow(fmap, cmap='viridis')
+        #     plt.colorbar()
+        #     plt.title(f"RDG {i+1} Feature Map (Mean over C)")
+        #     plt.axis('off')
+        #     plt.tight_layout()
+        #     plt.savefig(f"./visual_feat/{idx}_feature_rdg{i+1}.png")
+        #     plt.close()  # 避免重疊
     else:
         # test the image tile by tile
         b, c, h, w = img_lq.size()
