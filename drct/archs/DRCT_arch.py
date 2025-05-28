@@ -56,7 +56,7 @@ class ChannelAttention(nn.Module):
     def forward(self, x):
         y = self.attention(x)
         return x * y
-    
+
 class SpatialAttention(nn.Module):
     def __init__(self, kernel_size=7):
         super().__init__()
@@ -92,12 +92,12 @@ class CAB(nn.Module):
             nn.GELU(),
             nn.Conv2d(num_feat // compress_ratio, num_feat, 3, 1, 1)
         )
-        self.cbam = CBAM(num_feat, squeeze_factor) 
+        self.cbam = CBAM(num_feat, squeeze_factor)
 
     def forward(self, x):
         res = self.body(x)
         res = self.cbam(res)
-        return x + res  
+        return x + res
 
 class Mlp(nn.Module):
 
@@ -815,17 +815,15 @@ class DRCT(nn.Module):
             x = x + self.absolute_pos_embed
         x = self.pos_drop(x)
 
-        features = []
-
         for layer in self.layers:
             x = layer(x, x_size)
-            x_unembed = self.patch_unembed(x, x_size)
-            features.append(x_unembed.clone())
+
+
 
         x = self.norm(x)  # b seq_len c
         x = self.patch_unembed(x, x_size)
 
-        return x, features
+        return x
 
 
     def forward(self, x):
