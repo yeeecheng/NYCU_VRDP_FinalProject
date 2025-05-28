@@ -786,17 +786,15 @@ class DRCT(nn.Module):
             x = x + self.absolute_pos_embed
         x = self.pos_drop(x)
 
-        features = []
-
         for layer in self.layers:
             x = layer(x, x_size)
-            x_unembed = self.patch_unembed(x, x_size)
-            features.append(x_unembed.clone())
+
+
 
         x = self.norm(x)  # b seq_len c
         x = self.patch_unembed(x, x_size)
 
-        return x, features
+        return x
 
 
     def forward(self, x):
