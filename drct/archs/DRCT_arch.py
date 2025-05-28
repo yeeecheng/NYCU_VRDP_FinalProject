@@ -56,23 +56,48 @@ class ChannelAttention(nn.Module):
     def forward(self, x):
         y = self.attention(x)
         return x * y
+    
+class SpatialAttention(nn.Module):
+    def __init__(self, kernel_size=7):
+        super().__init__()
+        self.conv = nn.Conv2d(2, 1, kernel_size, padding=kernel_size // 2)
+        self.sigmoid = nn.Sigmoid()
 
+    def forward(self, x):
+        avg = torch.mean(x, dim=1, keepdim=True)
+        max = torch.max(x, dim=1, keepdim=True)[0]
+        x_cat = torch.cat([avg, max], dim=1)
+        return x * self.sigmoid(self.conv(x_cat))
+
+class CBAM(nn.Module):
+    def __init__(self, channels, squeeze_factor=16):
+        super().__init__()
+        self.channel_att = ChannelAttention(channels, squeeze_factor)
+        self.spatial_att = SpatialAttention()
+        print("ChannelAttention initialized!")
+
+
+    def forward(self, x):
+        x = self.channel_att(x)
+        x = self.spatial_att(x)
+        return x
 
 class CAB(nn.Module):
 
     def __init__(self, num_feat, compress_ratio=3, squeeze_factor=30):
         super(CAB, self).__init__()
 
-        self.cab = nn.Sequential(
+        self.body = nn.Sequential(
             nn.Conv2d(num_feat, num_feat // compress_ratio, 3, 1, 1),
             nn.GELU(),
-            nn.Conv2d(num_feat // compress_ratio, num_feat, 3, 1, 1),
-            ChannelAttention(num_feat, squeeze_factor)
-            )
+            nn.Conv2d(num_feat // compress_ratio, num_feat, 3, 1, 1)
+        )
+        self.cbam = CBAM(num_feat, squeeze_factor) 
 
     def forward(self, x):
-        return self.cab(x)
-
+        res = self.body(x)
+        res = self.cbam(res)
+        return x + res  
 
 class Mlp(nn.Module):
 
@@ -236,6 +261,7 @@ class RDG(nn.Module):
                                           drop_path=drop_path[0] if isinstance(drop_path, list) else drop_path,
                                           norm_layer=norm_layer)
         self.adjust1 = nn.Conv2d(dim, gc, 1)
+        self.cab1 = CAB(gc)
 
         self.swin2 = SwinTransformerBlock(dim + gc, input_resolution=input_resolution,
                                           num_heads=num_heads - ((dim + gc)%num_heads), window_size=window_size,
@@ -246,6 +272,7 @@ class RDG(nn.Module):
                                           drop_path=drop_path[0] if isinstance(drop_path, list) else drop_path,
                                           norm_layer=norm_layer)
         self.adjust2 = nn.Conv2d(dim+gc, gc, 1)
+        self.cab2 = CAB(gc)
 
         self.swin3 = SwinTransformerBlock(dim + 2 * gc, input_resolution=input_resolution,
                                           num_heads=num_heads - ((dim + 2 * gc)%num_heads), window_size=window_size,
@@ -256,6 +283,7 @@ class RDG(nn.Module):
                                           drop_path=drop_path[0] if isinstance(drop_path, list) else drop_path,
                                           norm_layer=norm_layer)
         self.adjust3 = nn.Conv2d(dim+gc*2, gc, 1)
+        self.cab3 = CAB(gc)
 
         self.swin4 = SwinTransformerBlock(dim + 3 * gc, input_resolution=input_resolution,
                                           num_heads=num_heads - ((dim + 3 * gc)%num_heads), window_size=window_size,
@@ -266,6 +294,7 @@ class RDG(nn.Module):
                                           drop_path=drop_path[0] if isinstance(drop_path, list) else drop_path,
                                           norm_layer=norm_layer)
         self.adjust4 = nn.Conv2d(dim+gc*3, gc, 1)
+        self.cab4 = CAB(gc)
 
         self.swin5 = SwinTransformerBlock(dim + 4 * gc, input_resolution=input_resolution,
                                           num_heads=num_heads - ((dim + 4 * gc)%num_heads), window_size=window_size,
@@ -290,10 +319,10 @@ class RDG(nn.Module):
 
 
     def forward(self, x, xsize):
-        x1 = self.pe(self.lrelu(self.adjust1(self.pue(self.swin1(x,xsize), xsize))))
-        x2 = self.pe(self.lrelu(self.adjust2(self.pue(self.swin2(torch.cat((x, x1), -1), xsize), xsize))))
-        x3 = self.pe(self.lrelu(self.adjust3(self.pue(self.swin3(torch.cat((x, x1, x2), -1), xsize), xsize))))
-        x4 = self.pe(self.lrelu(self.adjust4(self.pue(self.swin4(torch.cat((x, x1, x2, x3), -1), xsize), xsize))))
+        x1 = self.pe(self.lrelu(self.cab1(self.adjust1(self.pue(self.swin1(x, xsize), xsize)))))
+        x2 = self.pe(self.lrelu(self.cab2(self.adjust2(self.pue(self.swin2(torch.cat((x, x1), -1), xsize), xsize)))))
+        x3 = self.pe(self.lrelu(self.cab3(self.adjust3(self.pue(self.swin3(torch.cat((x, x1, x2), -1), xsize), xsize)))))
+        x4 = self.pe(self.lrelu(self.cab4(self.adjust4(self.pue(self.swin4(torch.cat((x, x1, x2, x3), -1), xsize), xsize)))))
         x5 = self.pe(           self.adjust5(self.pue(self.swin5(torch.cat((x, x1, x2, x3, x4), -1), xsize), xsize)))
 
 
