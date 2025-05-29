@@ -1,1 +1,1 @@
-CUDA_VISIBLE_DEVICES="1" python inference.py --input ../dataset/test/lr/ --output ./kaggle_test_HR_result/pre-trained_with_kaggle_dataset_TTA --model_path /mnt/SSD8/miayan/DRCT/experiments/train_DRCT_SRx4_finetune_from_DCRT_pretrain/models/net_g_145000.pth
+CUDA_VISIBLE_DEVICES="1" python inference.py --input ../dataset/test/lr/ --output ./kaggle_test_HR_result/pre-trained_with_kaggle_dataset_stage2_TTA --model_path /mnt/SSD8/miayan/DRCT/experiments/train_DRCT_SRx4_finetune_from_DCRT_pretrain_stage2/models/net_g_110000.pth
