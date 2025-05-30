@@ -86,7 +86,7 @@ def prediction(
 
 if __name__ == "__main__":
     prediction(
-        sample_submission="../dataset/sample_submission.csv",
-        lr_folder='./kaggle_test_HR_result/pre-trained_with_kaggle_dataset_stage2_TTA',
+        sample_submission="./dataset/sample_submission.csv",
+        lr_folder='./kaggle_test_HR_result/pre-trained_with_kaggle_dataset_with_DACLIP_TTA_v3_95000',
         output_file=f'kaggle_solution.csv'
     )

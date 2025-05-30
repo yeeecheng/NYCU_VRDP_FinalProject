@@ -1,6 +1,7 @@
 import torch
 from torch.nn import functional as F
 
+from collections import OrderedDict
 from basicsr.utils.registry import MODEL_REGISTRY
 from basicsr.models.sr_model import SRModel
 from basicsr.metrics import calculate_metric
@@ -36,6 +37,35 @@ class DRCTModel(SRModel):
             with torch.no_grad():
                 self.output = self.net_g(self.img)
             # self.net_g.train()
+
+    def optimize_parameters(self, current_iter):
+        self.optimizer_g.zero_grad()
+        self.output = self.net_g(self.lq, self.image_features, self.degra_features)
+
+        l_total = 0
+        loss_dict = OrderedDict()
+        # pixel loss
+        if self.cri_pix:
+            l_pix = self.cri_pix(self.output, self.gt)
+            l_total += l_pix
+            loss_dict['l_pix'] = l_pix
+        # perceptual loss
+        if self.cri_perceptual:
+            l_percep, l_style = self.cri_perceptual(self.output, self.gt)
+            if l_percep is not None:
+                l_total += l_percep
+                loss_dict['l_percep'] = l_percep
+            if l_style is not None:
+                l_total += l_style
+                loss_dict['l_style'] = l_style
+
+        l_total.backward()
+        self.optimizer_g.step()
+
+        self.log_dict = self.reduce_loss_dict(loss_dict)
+
+        if self.ema_decay > 0:
+            self.model_ema(decay=self.ema_decay)
 
     def tile_process(self):
         """It will first crop input images to tiles, and then process each tile.

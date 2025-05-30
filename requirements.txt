@@ -2,3 +2,5 @@ einops
 torch>=1.7
 basicsr==1.3.4.9
 matplotlib
+ftfy
+regex

@@ -8,6 +8,8 @@ from basicsr.archs.arch_util import to_2tuple, trunc_normal_
 
 from einops import rearrange
 
+
+
 def drop_path(x, drop_prob: float = 0., training: bool = False):
     """Drop paths (Stochastic Depth) per sample (when applied in main path of residual blocks).
 
@@ -227,6 +229,8 @@ class RDG(nn.Module):
     def __init__(self, dim, input_resolution, depth, num_heads, window_size, shift_size, mlp_ratio, qkv_bias, qk_scale, drop, attn_drop, drop_path, norm_layer, gc, patch_size, img_size):
         super(RDG, self).__init__()
 
+        self.daclip_cross_attn = SemanticDegradationAttention(dim=dim)
+
         self.swin1 = SwinTransformerBlock(dim=dim, input_resolution=input_resolution,
                                           num_heads=num_heads, window_size=window_size,
                                           shift_size=0,  # For first block
@@ -288,8 +292,11 @@ class RDG(nn.Module):
             norm_layer=None)
 
 
+    def forward(self, x, xsize, img_feat=None, degra_feat=None):
 
-    def forward(self, x, xsize):
+        if self.daclip_cross_attn is not None and img_feat is not None and degra_feat is not None:
+            x = self.daclip_cross_attn(x, img_feat, degra_feat)
+
         x1 = self.pe(self.lrelu(self.adjust1(self.pue(self.swin1(x,xsize), xsize))))
         x2 = self.pe(self.lrelu(self.adjust2(self.pue(self.swin2(torch.cat((x, x1), -1), xsize), xsize))))
         x3 = self.pe(self.lrelu(self.adjust3(self.pue(self.swin3(torch.cat((x, x1, x2), -1), xsize), xsize))))
@@ -619,6 +626,31 @@ class Upsample(nn.Sequential):
             raise ValueError(f'scale {scale} is not supported. ' 'Supported scales: 2^n and 3.')
         super(Upsample, self).__init__(*m)
 
+class SemanticDegradationAttention(nn.Module):
+    def __init__(self, dim, emb_dim=768, num_heads=6):
+        super().__init__()
+        self.norm1 = nn.LayerNorm(dim)
+        self.norm2 = nn.LayerNorm(dim)
+
+        self.cross_sem = nn.MultiheadAttention(embed_dim=dim, kdim=emb_dim, vdim=emb_dim, num_heads=num_heads, batch_first=True)
+        self.cross_deg = nn.MultiheadAttention(embed_dim=dim, kdim=emb_dim, vdim=emb_dim, num_heads=num_heads, batch_first=True)
+
+    def forward(self, feat, semantic, degradation):
+        """
+        feat: [B, H*W, C]
+        semantic, degradation: [B, emb_dim]
+        """
+        B, N, C = feat.shape
+        sem = semantic.unsqueeze(1)   # [B, 1, emb_dim]
+        deg = degradation.unsqueeze(1)
+
+        # Step 1: Cross attention with semantic
+        x = feat + self.cross_sem(self.norm1(feat), sem, sem)[0]  # residual connection
+
+        # Step 2: Cross attention with degradation
+        x = x + self.cross_deg(self.norm2(x), deg, deg)[0]        # residual connection
+
+        return x
 
 @ARCH_REGISTRY.register()
 class DRCT(nn.Module):
@@ -778,7 +810,7 @@ class DRCT(nn.Module):
 
     #     return x, features
 
-    def forward_features(self, x):
+    def forward_features(self, x, img_feat, degra_feat):
         x_size = (x.shape[2], x.shape[3])
 
         x = self.patch_embed(x)
@@ -786,8 +818,9 @@ class DRCT(nn.Module):
             x = x + self.absolute_pos_embed
         x = self.pos_drop(x)
 
+
         for layer in self.layers:
-            x = layer(x, x_size)
+            x = layer(x, x_size, img_feat, degra_feat)
 
 
 
@@ -797,7 +830,7 @@ class DRCT(nn.Module):
         return x
 
 
-    def forward(self, x):
+    def forward(self, x, img_feat, degra_feat):
         self.mean = self.mean.type_as(x)
         x = (x - self.mean) * self.img_range
 
@@ -812,7 +845,7 @@ class DRCT(nn.Module):
             # x = self.conv_last(self.upsample(x))
 
 
-            x = self.conv_after_body(self.forward_features(x)) + x
+            x = self.conv_after_body(self.forward_features(x, img_feat, degra_feat)) + x
             x = self.conv_before_upsample(x)
             x = self.conv_last(self.upsample(x))
 
