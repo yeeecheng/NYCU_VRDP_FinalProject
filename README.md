@@ -19,7 +19,34 @@ python setup.py develop
 
 ## How to train the model
 
-You can get tje DRCT pre-trained weight in this [link](https://drive.google.com/drive/folders/1QJHdSfo-0eFNb96i8qzMJAPw31u9qZ7U)
+You can get the DRCT pre-trained weight in this [link](https://drive.google.com/drive/folders/1QJHdSfo-0eFNb96i8qzMJAPw31u9qZ7U) and DACLIP pre-trained weight in this [link](https://drive.google.com/file/d/1eVxgvwzwLl5oWSVIgnA2gycV6ewLEVJd/view)
+
+
+For the DACLIP pre-trained weight, you should change the weight path in line 13 at `basicsr/models/daclip_model.py`
+```
+@ARCH_REGISTRY.register()
+class DACLIP(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.model, self.preprocess  = open_clip.create_model_from_pretrained(
+            'daclip_ViT-L-14', pretrained="/swim-pool/yicheng/NYCU_VRDP_FinalProject/weights/wild-daclip_ViT-L-14.pt"
+        )
+
+    def encode(self, lq_path, device):
+        batch_images = []
+        for img_path in lq_path:
+            image = Image.open(img_path)
+            preprocess_image = self.preprocess(image)
+            batch_images.append(preprocess_image)
+        batch_tensor = torch.stack(batch_images).to(device)
+        with torch.no_grad():
+            image_features, degra_features = self.model.encode_image(batch_tensor, control=True)
+        return image_features, degra_features
+
+    def forward(self, x, device):
+        return self.encode(x, device)
+```
+
 
 First,
 ```
@@ -49,6 +76,31 @@ CUDA_VISIBLE_DEVICES="5" python inference_with_DACLIP.py --input ./dataset/test/
     --model_path /swim-pool/yicheng/NYCU_VRDP_FinalProject/experiments/train_DRCT_SRx4_finetune_from_DRCT_pre-train_with_DACLIP_modify_v2/models/net_g_25000.pth
 ```
 You can change the CUDA_VISIBLE_DEVICES, --input is folder you put the lr images, --output folder you want to put the restord images, --model_path your weight.
+
+You also need to change DACLIP weight path in line 22 at `inference_with_DACLIP.py`
+```
+class DACLIP(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.model, self.preprocess  = open_clip.create_model_from_pretrained(
+            'daclip_ViT-L-14', pretrained="/swim-pool/yicheng/NYCU_VRDP_FinalProject/weights/wild-daclip_ViT-L-14.pt"
+        )
+
+    def encode(self, lq_path, device):
+        batch_images = []
+        for img_path in lq_path:
+            image = Image.open(img_path)
+            preprocess_image = self.preprocess(image)
+            batch_images.append(preprocess_image)
+        batch_tensor = torch.stack(batch_images).to(device)
+        with torch.no_grad():
+            image_features, degra_features = self.model.encode_image(batch_tensor, control=True)
+        return image_features, degra_features
+
+    def forward(self, x, device):
+        return self.encode(x, device)
+```
+
 
 Then, run
 ```
