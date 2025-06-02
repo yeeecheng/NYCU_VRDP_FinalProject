@@ -32,10 +32,10 @@ def main():
     parser.add_argument('--output', type=str, default='results/DRCT-L', help='output folder')
     parser.add_argument('--scale', type=int, default=4, help='scale factor: 1, 2, 3, 4')
     #parser.add_argument('--window_size', type=int, default=16, help='16')
-    
+
     parser.add_argument('--tile', type=int, default=None, help='Tile size, None for no tile during testing (testing as a whole)')
     parser.add_argument('--tile_overlap', type=int, default=32, help='Overlapping of different tiles')
-    
+
     args = parser.parse_args()
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -44,15 +44,15 @@ def main():
                         conv_scale= 0.01, overlap_ratio= 0.5, img_range= 1., depths= [6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6],
                         embed_dim= 180, num_heads= [6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6], gc= 32,
                         mlp_ratio= 2, upsampler= 'pixelshuffle', resi_connection= '1conv')
-    
+
     model.load_state_dict(torch.load(args.model_path)['params'], strict=True)
     model.eval()
     model = model.to(device)
-    
+
     print(model)
-    
+
     window_size = 16
-    
+
     os.makedirs(args.output, exist_ok=True)
     for idx, path in enumerate(sorted(glob.glob(os.path.join(args.input, '*')))):
         imgname = os.path.splitext(os.path.basename(path))[0]
@@ -60,7 +60,7 @@ def main():
         # read image
         img = cv2.imread(path, cv2.IMREAD_COLOR).astype(np.float32) / 255.
         img = torch.from_numpy(np.transpose(img[:, :, [2, 1, 0]], (2, 0, 1))).float()
-        
+
         #img = torch.from_numpy(np.transpose(img[:, :, [2, 1, 0]], (2, 0, 1))).float()
         img = img.unsqueeze(0).to(device)
         #print(img.shape)
@@ -70,8 +70,8 @@ def main():
                 #output = model(img)
 
                 outputs = []
-                for transform, name in apply_tta(img[0]): 
-                    tta_img = transform(img[0]) 
+                for transform, name in apply_tta(img[0]):
+                    tta_img = transform(img[0])
                     tta_img = tta_img.unsqueeze(0).to(device)
 
                     _, _, h_old, w_old = tta_img.size()
@@ -90,8 +90,8 @@ def main():
                         output = torch.flip(output, [2, 3])
                     outputs.append(output)
 
-                
-                output = torch.stack(outputs).mean(dim=0) 
+
+                output = torch.stack(outputs).mean(dim=0)
 
         except Exception as error:
             print('Error', error, imgname)
@@ -102,18 +102,16 @@ def main():
             output = (output * 255.0).round().astype(np.uint8)
             cv2.imwrite(os.path.join(args.output, f'{imgname}_DRCT-L_X4.png'), output)
 
-
-
 def test(img_lq, model, args, window_size, idx):
     if args.tile is None:
         # test the image as a whole
         # output, feature_maps = model(img_lq)
-        output, _ = model(img_lq)
+        output = model(img_lq)
 
         # import matplotlib.pyplot as plt
         # for i, feat in enumerate(feature_maps):
         #     fmap = feat[0].mean(0).cpu().numpy()  # 平均所有 channels，shape: [H, W]
-        
+
         #     plt.figure(figsize=(4, 4))            # 每張開新圖
         #     plt.imshow(fmap, cmap='viridis')
         #     plt.colorbar()
