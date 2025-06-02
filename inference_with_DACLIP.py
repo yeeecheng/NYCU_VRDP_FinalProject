@@ -62,9 +62,6 @@ def main():
     parser.add_argument('--tile', type=int, default=None, help='Tile size, None for no tile during testing (testing as a whole)')
     parser.add_argument('--tile_overlap', type=int, default=32, help='Overlapping of different tiles')
 
-    parser.add_argument('--start_idx', type=int, default=0, help='start index of the image')
-    parser.add_argument('--end_idx', type=int, default=600, help='end index of the image')
-
     args = parser.parse_args()
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -94,57 +91,57 @@ def main():
     os.makedirs(args.output, exist_ok=True)
     for idx, path in enumerate(sorted(glob.glob(os.path.join(args.input, '*')))):
 
-        if start_idx <= idx and idx < end_idx:
-
-            image = preprocess(Image.open(path)).unsqueeze(0).to(device)
-            image_features, degra_features = daclip_encoder.encode_image(image, control=True)
-
-            imgname = os.path.splitext(os.path.basename(path))[0]
-            print('Testing', idx, imgname)
-            # read image
-            img = cv2.imread(path, cv2.IMREAD_COLOR).astype(np.float32) / 255.
-            img = torch.from_numpy(np.transpose(img[:, :, [2, 1, 0]], (2, 0, 1))).float()
-
-            #img = torch.from_numpy(np.transpose(img[:, :, [2, 1, 0]], (2, 0, 1))).float()
-            img = img.unsqueeze(0).to(device)
-            #print(img.shape)
-            # inference
-            try:
-                with torch.no_grad():
-                    #output = model(img)
-
-                    outputs = []
-                    for transform, name in apply_tta(img[0]):
-                        tta_img = transform(img[0])
-                        tta_img = tta_img.unsqueeze(0).to(device)
-
-                        _, _, h_old, w_old = tta_img.size()
-                        h_pad = (h_old // window_size + 1) * window_size - h_old
-                        w_pad = (w_old // window_size + 1) * window_size - w_old
-                        tta_img = torch.cat([tta_img, torch.flip(tta_img, [2])], 2)[:, :, :h_old + h_pad, :]
-                        tta_img = torch.cat([tta_img, torch.flip(tta_img, [3])], 3)[:, :, :, :w_old + w_pad]
-                        output = test(tta_img, model, args, window_size, idx, image_features=image_features, degra_features=degra_features)
-                        output = output[..., :h_old * args.scale, :w_old * args.scale]
-                        # inverse transform
-                        if name == 'hflip':
-                            output = torch.flip(output, [3])
-                        elif name == 'vflip':
-                            output = torch.flip(output, [2])
-                        elif name == 'hvflip':
-                            output = torch.flip(output, [2, 3])
-                        outputs.append(output)
 
 
-                    output = torch.stack(outputs).mean(dim=0)
+        image = preprocess(Image.open(path)).unsqueeze(0).to(device)
+        image_features, degra_features = daclip_encoder.encode_image(image, control=True)
 
-            except Exception as error:
-                print('Error', error, imgname)
-            else:
-                # save image
-                output = output.data.squeeze().float().cpu().clamp_(0, 1).numpy()
-                output = np.transpose(output[[2, 1, 0], :, :], (1, 2, 0))
-                output = (output * 255.0).round().astype(np.uint8)
-                cv2.imwrite(os.path.join(args.output, f'{imgname}_DRCT-L_X4.png'), output)
+        imgname = os.path.splitext(os.path.basename(path))[0]
+        print('Testing', idx, imgname)
+        # read image
+        img = cv2.imread(path, cv2.IMREAD_COLOR).astype(np.float32) / 255.
+        img = torch.from_numpy(np.transpose(img[:, :, [2, 1, 0]], (2, 0, 1))).float()
+
+        #img = torch.from_numpy(np.transpose(img[:, :, [2, 1, 0]], (2, 0, 1))).float()
+        img = img.unsqueeze(0).to(device)
+        #print(img.shape)
+        # inference
+        try:
+            with torch.no_grad():
+                #output = model(img)
+
+                outputs = []
+                for transform, name in apply_tta(img[0]):
+                    tta_img = transform(img[0])
+                    tta_img = tta_img.unsqueeze(0).to(device)
+
+                    _, _, h_old, w_old = tta_img.size()
+                    h_pad = (h_old // window_size + 1) * window_size - h_old
+                    w_pad = (w_old // window_size + 1) * window_size - w_old
+                    tta_img = torch.cat([tta_img, torch.flip(tta_img, [2])], 2)[:, :, :h_old + h_pad, :]
+                    tta_img = torch.cat([tta_img, torch.flip(tta_img, [3])], 3)[:, :, :, :w_old + w_pad]
+                    output = test(tta_img, model, args, window_size, idx, image_features=image_features, degra_features=degra_features)
+                    output = output[..., :h_old * args.scale, :w_old * args.scale]
+                    # inverse transform
+                    if name == 'hflip':
+                        output = torch.flip(output, [3])
+                    elif name == 'vflip':
+                        output = torch.flip(output, [2])
+                    elif name == 'hvflip':
+                        output = torch.flip(output, [2, 3])
+                    outputs.append(output)
+
+
+                output = torch.stack(outputs).mean(dim=0)
+
+        except Exception as error:
+            print('Error', error, imgname)
+        else:
+            # save image
+            output = output.data.squeeze().float().cpu().clamp_(0, 1).numpy()
+            output = np.transpose(output[[2, 1, 0], :, :], (1, 2, 0))
+            output = (output * 255.0).round().astype(np.uint8)
+            cv2.imwrite(os.path.join(args.output, f'{imgname}_DRCT-L_X4.png'), output)
 
 
 

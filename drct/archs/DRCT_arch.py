@@ -229,7 +229,6 @@ class RDG(nn.Module):
     def __init__(self, dim, input_resolution, depth, num_heads, window_size, shift_size, mlp_ratio, qkv_bias, qk_scale, drop, attn_drop, drop_path, norm_layer, gc, patch_size, img_size):
         super(RDG, self).__init__()
 
-        self.daclip_cross_attn = SemanticDegradationAttention(dim=dim)
 
         self.swin1 = SwinTransformerBlock(dim=dim, input_resolution=input_resolution,
                                           num_heads=num_heads, window_size=window_size,
@@ -260,6 +259,8 @@ class RDG(nn.Module):
                                           drop_path=drop_path[0] if isinstance(drop_path, list) else drop_path,
                                           norm_layer=norm_layer)
         self.adjust3 = nn.Conv2d(dim+gc*2, gc, 1)
+
+        self.daclip_cross_attn = SemanticDegradationAttention(dim=dim + 3 * gc)
 
         self.swin4 = SwinTransformerBlock(dim + 3 * gc, input_resolution=input_resolution,
                                           num_heads=num_heads - ((dim + 3 * gc)%num_heads), window_size=window_size,
@@ -292,17 +293,31 @@ class RDG(nn.Module):
             norm_layer=None)
 
 
+    # def forward(self, x, xsize, img_feat=None, degra_feat=None):
+
+    #     if self.daclip_cross_attn is not None and img_feat is not None and degra_feat is not None:
+    #         x = self.daclip_cross_attn(x, img_feat, degra_feat)
+
+    #     x1 = self.pe(self.lrelu(self.adjust1(self.pue(self.swin1(x,xsize), xsize))))
+    #     x2 = self.pe(self.lrelu(self.adjust2(self.pue(self.swin2(torch.cat((x, x1), -1), xsize), xsize))))
+    #     x3 = self.pe(self.lrelu(self.adjust3(self.pue(self.swin3(torch.cat((x, x1, x2), -1), xsize), xsize))))
+    #     x4 = self.pe(self.lrelu(self.adjust4(self.pue(self.swin4(torch.cat((x, x1, x2, x3), -1), xsize), xsize))))
+    #     x5 = self.pe(           self.adjust5(self.pue(self.swin5(torch.cat((x, x1, x2, x3, x4), -1), xsize), xsize)))
+
+
+    #     return x5 * 0.2 + x
+
     def forward(self, x, xsize, img_feat=None, degra_feat=None):
-
-        if self.daclip_cross_attn is not None and img_feat is not None and degra_feat is not None:
-            x = self.daclip_cross_attn(x, img_feat, degra_feat)
-
-        x1 = self.pe(self.lrelu(self.adjust1(self.pue(self.swin1(x,xsize), xsize))))
+        x1 = self.pe(self.lrelu(self.adjust1(self.pue(self.swin1(x, xsize), xsize))))
         x2 = self.pe(self.lrelu(self.adjust2(self.pue(self.swin2(torch.cat((x, x1), -1), xsize), xsize))))
         x3 = self.pe(self.lrelu(self.adjust3(self.pue(self.swin3(torch.cat((x, x1, x2), -1), xsize), xsize))))
-        x4 = self.pe(self.lrelu(self.adjust4(self.pue(self.swin4(torch.cat((x, x1, x2, x3), -1), xsize), xsize))))
-        x5 = self.pe(           self.adjust5(self.pue(self.swin5(torch.cat((x, x1, x2, x3, x4), -1), xsize), xsize)))
+        x4_input = torch.cat((x, x1, x2, x3), -1)
 
+        if self.daclip_cross_attn is not None and img_feat is not None and degra_feat is not None:
+            x4_input = self.daclip_cross_attn(x4_input, img_feat, degra_feat)
+
+        x4 = self.pe(self.lrelu(self.adjust4(self.pue(self.swin4(x4_input, xsize), xsize))))
+        x5 = self.pe(self.adjust5(self.pue(self.swin5(torch.cat((x, x1, x2, x3, x4), -1), xsize), xsize)))
 
         return x5 * 0.2 + x
 
@@ -629,11 +644,23 @@ class Upsample(nn.Sequential):
 class SemanticDegradationAttention(nn.Module):
     def __init__(self, dim, emb_dim=768, num_heads=6):
         super().__init__()
+
+        self.norm_semantic_proj = nn.LayerNorm(emb_dim)
+        self.norm_degra_proj = nn.LayerNorm(emb_dim)
+
+        self.semantic_proj = nn.Linear(emb_dim, dim)
+        self.degra_proj = nn.Linear(emb_dim, dim)
+
+
         self.norm1 = nn.LayerNorm(dim)
         self.norm2 = nn.LayerNorm(dim)
 
-        self.cross_sem = nn.MultiheadAttention(embed_dim=dim, kdim=emb_dim, vdim=emb_dim, num_heads=num_heads, batch_first=True)
-        self.cross_deg = nn.MultiheadAttention(embed_dim=dim, kdim=emb_dim, vdim=emb_dim, num_heads=num_heads, batch_first=True)
+
+        # self.cross_sem = nn.MultiheadAttention(embed_dim=dim, kdim=emb_dim, vdim=emb_dim, num_heads=num_heads, batch_first=True)
+        # self.cross_deg = nn.MultiheadAttention(embed_dim=dim, kdim=emb_dim, vdim=emb_dim, num_heads=num_heads, batch_first=True)
+
+        self.cross_sem = nn.MultiheadAttention(embed_dim=dim, kdim=dim, vdim=dim, num_heads=num_heads, batch_first=True)
+        self.cross_deg = nn.MultiheadAttention(embed_dim=dim, kdim=dim, vdim=dim, num_heads=num_heads, batch_first=True)
 
     def forward(self, feat, semantic, degradation):
         """
@@ -641,8 +668,11 @@ class SemanticDegradationAttention(nn.Module):
         semantic, degradation: [B, emb_dim]
         """
         B, N, C = feat.shape
-        sem = semantic.unsqueeze(1)   # [B, 1, emb_dim]
-        deg = degradation.unsqueeze(1)
+        # sem = semantic.unsqueeze(1)   # [B, 1, emb_dim]
+        # deg = degradation.unsqueeze(1)
+
+        sem = self.semantic_proj(self.norm_semantic_proj(semantic)).unsqueeze(1)    # [B, 1, dim]
+        deg = self.degra_proj(self.norm_degra_proj(degradation)).unsqueeze(1)    # [B, 1, dim]
 
         # Step 1: Cross attention with semantic
         x = feat + self.cross_sem(self.norm1(feat), sem, sem)[0]  # residual connection
