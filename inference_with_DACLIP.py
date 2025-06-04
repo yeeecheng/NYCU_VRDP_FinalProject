@@ -84,9 +84,6 @@ def main():
 
     window_size = 16
 
-    start_idx = args.start_idx
-    end_idx = args.end_idx
-
 
     os.makedirs(args.output, exist_ok=True)
     for idx, path in enumerate(sorted(glob.glob(os.path.join(args.input, '*')))):
